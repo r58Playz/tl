@@ -6,7 +6,6 @@ use super::{
 use crate::InnerNodeHandle;
 use crate::{bytes::Bytes, inline::vec::InlineVec, simd, ParseError};
 use crate::{stream::Stream, ParserOptions};
-use std::collections::HashMap;
 
 /// A list of HTML nodes
 pub type Tree<'a> = Vec<Node<'a>>;
@@ -44,10 +43,6 @@ pub struct Parser<'a> {
     pub(crate) tags: Tree<'a>,
     /// The topmost HTML nodes
     pub(crate) ast: Vec<NodeHandle>,
-    /// A HashMap that maps Tag ID to a Node ID
-    pub(crate) ids: HashMap<Bytes<'a>, NodeHandle>,
-    /// A HashMap that maps Tag Class to a Node ID
-    pub(crate) classes: HashMap<Bytes<'a>, ClassVec>,
     /// The current HTML version, if set
     pub(crate) version: Option<HTMLVersion>,
 }
@@ -60,8 +55,6 @@ impl<'a> Parser<'a> {
             tags: Vec::new(),
             stream: Stream::new(input.as_bytes()),
             ast: Vec::new(),
-            ids: HashMap::new(),
-            classes: HashMap::new(),
             version: None,
         }
     }
@@ -185,9 +178,7 @@ impl<'a> Parser<'a> {
                 let value: Option<Bytes<'a>> = value.map(Into::into);
 
                 match key {
-                    b"id" => attributes.id = value,
-                    b"class" => attributes.class = value,
-                    _ => attributes.raw.insert(key.into(), value),
+                    _ => attributes.insert(key.into(), value),
                 };
             }
 
@@ -216,6 +207,7 @@ impl<'a> Parser<'a> {
     }
 
     fn read_end(&mut self) {
+		let end = self.stream.idx - 1;
         self.stream.advance();
 
         let closing_tag_name = self.read_to(b'>');
@@ -243,32 +235,11 @@ impl<'a> Parser<'a> {
             let offset = tag._raw.as_ptr() as usize;
             let offset = offset - ptr;
 
+			let inner_offset = tag._inner.as_ptr() as usize;
+			let inner_offset = inner_offset - ptr;
+
             tag._raw = self.stream.slice(offset, self.stream.idx).into();
-
-            let (track_classes, track_ids) = (
-                self.options.is_tracking_classes(),
-                self.options.is_tracking_ids(),
-            );
-
-            if let (true, Some(bytes)) = (track_classes, &tag._attributes.class) {
-                let s = bytes
-                    .as_bytes_borrowed()
-                    .and_then(|x| std::str::from_utf8(x).ok())
-                    .map(|x| x.split_ascii_whitespace());
-
-                if let Some(s) = s {
-                    for class in s {
-                        self.classes
-                            .entry(class.into())
-                            .or_insert_with(InlineVec::new)
-                            .push(handle);
-                    }
-                }
-            }
-
-            if let (true, Some(bytes)) = (track_ids, &tag._attributes.id) {
-                self.ids.insert(bytes.clone(), handle);
-            }
+			tag._inner = self.stream.slice(inner_offset, end).into();
         }
     }
 
@@ -318,7 +289,9 @@ impl<'a> Parser<'a> {
         let cur = self.stream.current_cpy()?;
 
         match cur {
-            b'/' => self.read_end(),
+            b'/' => {
+				self.read_end()
+			}
             b'!' => {
                 self.read_markdown();
             }
@@ -337,6 +310,7 @@ impl<'a> Parser<'a> {
                     attr,
                     InlineVec::new(),
                     self.stream.slice(start, self.stream.idx).into(),
+                    self.stream.slice(self.stream.idx, self.stream.idx).into(),
                 )));
 
                 self.add_to_parent(this);

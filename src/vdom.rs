@@ -1,10 +1,6 @@
 use crate::errors::ParseError;
 use crate::parser::HTMLVersion;
 use crate::parser::NodeHandle;
-use crate::queryselector;
-use crate::queryselector::QuerySelectorIterator;
-use crate::Bytes;
-use crate::InnerNodeHandle;
 use crate::ParserOptions;
 use crate::{Node, Parser};
 use std::marker::PhantomData;
@@ -37,61 +33,6 @@ impl<'a> VDom<'a> {
     #[inline]
     pub fn parser_mut(&mut self) -> &mut Parser<'a> {
         &mut self.parser
-    }
-
-    /// Finds an element by its `id` attribute.
-    pub fn get_element_by_id<'b, S>(&'b self, id: S) -> Option<NodeHandle>
-    where
-        S: Into<Bytes<'a>>,
-    {
-        let bytes: Bytes = id.into();
-        let parser = self.parser();
-
-        if parser.options.is_tracking_ids() {
-            parser.ids.get(&bytes).copied()
-        } else {
-            self.nodes()
-                .iter()
-                .enumerate()
-                .find(|(_, node)| {
-                    node.as_tag().map_or(false, |tag| {
-                        tag._attributes.id.as_ref().map_or(false, |x| x.eq(&bytes))
-                    })
-                })
-                .map(|(id, _)| NodeHandle::new(id as InnerNodeHandle))
-        }
-    }
-
-    /// Returns a list of elements that match a given class name.
-    pub fn get_elements_by_class_name<'b>(
-        &'b self,
-        id: &'b str,
-    ) -> Box<dyn Iterator<Item = NodeHandle> + 'b> {
-        let parser = self.parser();
-
-        if parser.options.is_tracking_classes() {
-            parser
-                .classes
-                .get(&Bytes::from(id.as_bytes()))
-                .map(|x| Box::new(x.iter().cloned()) as Box<dyn Iterator<Item = NodeHandle>>)
-                .unwrap_or_else(|| Box::new(std::iter::empty()))
-        } else {
-            let member = id;
-
-            let iter = self
-                .nodes()
-                .iter()
-                .enumerate()
-                .filter_map(move |(id, node)| {
-                    node.as_tag().and_then(|tag| {
-                        tag._attributes
-                            .is_class_member(member)
-                            .then(|| NodeHandle::new(id as InnerNodeHandle))
-                    })
-                });
-
-            Box::new(iter)
-        }
     }
 
     /// Returns a slice of *all* the elements in the HTML document
@@ -127,55 +68,6 @@ impl<'a> VDom<'a> {
     /// This is determined by the `<!DOCTYPE>` tag
     pub fn version(&self) -> Option<HTMLVersion> {
         self.parser.version
-    }
-
-    /// Returns the contained markup of all of the elements in this DOM.
-    ///
-    /// Equivalent to [Element#outerHTML](https://developer.mozilla.org/en-US/docs/Web/API/Element/outerHTML) in browsers)
-    ///
-    /// # Example
-    /// ```
-    /// let html = r#"<div><p href="/about" id="find-me">Hello world</p></div>"#;
-    /// let mut dom = tl::parse(html, Default::default()).unwrap();
-    ///
-    /// let element = dom.get_element_by_id("find-me")
-    ///     .unwrap()
-    ///     .get_mut(dom.parser_mut())
-    ///     .unwrap()
-    ///     .as_tag_mut()
-    ///     .unwrap();
-    ///
-    /// element.attributes_mut().get_mut("href").flatten().unwrap().set("/");
-    ///
-    /// assert_eq!(dom.outer_html(), r#"<div><p href="/" id="find-me">Hello world</p></div>"#);
-    /// ```
-    pub fn outer_html(&self) -> String {
-        let mut inner_html = String::with_capacity(self.parser.stream.len());
-
-        for node in self.children() {
-            let node = node.get(&self.parser).unwrap();
-            inner_html.push_str(&node.outer_html(&self.parser));
-        }
-
-        inner_html
-    }
-
-    /// Tries to parse the query selector and returns an iterator over elements that match the given query selector.
-    ///
-    /// # Example
-    /// ```
-    /// let dom = tl::parse("<div><p class=\"foo\">bar</div>", tl::ParserOptions::default()).unwrap();
-    /// let handle = dom.query_selector("p.foo").and_then(|mut iter| iter.next()).unwrap();
-    /// let node = handle.get(dom.parser()).unwrap();
-    /// assert_eq!(node.inner_text(dom.parser()), "bar");
-    /// ```
-    pub fn query_selector<'b>(
-        &'b self,
-        selector: &'b str,
-    ) -> Option<QuerySelectorIterator<'a, 'b, Self>> {
-        let selector = crate::parse_query_selector(selector)?;
-        let iter = queryselector::QuerySelectorIterator::new(selector, self.parser(), self);
-        Some(iter)
     }
 }
 

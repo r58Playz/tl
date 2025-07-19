@@ -8,8 +8,6 @@ pub mod errors;
 /// Inline data structures
 pub mod inline;
 mod parser;
-/// Query selector API
-pub mod queryselector;
 mod stream;
 #[cfg(test)]
 mod tests;
@@ -25,7 +23,6 @@ mod simd;
 pub use bytes::Bytes;
 pub use errors::ParseError;
 pub use parser::*;
-use queryselector::Selector;
 pub use vdom::{VDom, VDomGuard};
 
 /// Parses the given input string
@@ -50,26 +47,6 @@ pub fn parse(input: &str, options: ParserOptions) -> Result<VDom<'_>, ParseError
     let mut parser = Parser::new(input, options);
     parser.parse()?;
     Ok(VDom::from(parser))
-}
-
-/// Parses a query selector
-///
-/// # Example
-/// ```
-/// # use tl::queryselector::selector::Selector;
-/// let selector = tl::parse_query_selector("div#test");
-///
-/// match selector {
-///     Some(Selector::And(left, right)) => {
-///         assert!(matches!(&*left, Selector::Tag(b"div")));
-///         assert!(matches!(&*right, Selector::Id(b"test")));
-///     },
-///     _ => unreachable!()
-/// }
-/// ```
-pub fn parse_query_selector(input: &str) -> Option<Selector<'_>> {
-    let selector = queryselector::Parser::new(input.as_bytes()).selector()?;
-    Some(selector)
 }
 
 /// Parses the given input string and returns an owned, RAII guarded DOM
